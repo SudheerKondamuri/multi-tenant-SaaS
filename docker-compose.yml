@@ -12,7 +12,7 @@ services:
       - DB_PORT=5432
       - DB_USER=postgres
       - DB_PASSWORD=postgres
-      - DB_DATABASE=multi_tenant_saas
+      - DB_DATABASE=saas_db  # Updated to mandatory name
       - JWT_SECRET=${JWT_SECRET:-supersecretkey123}
       - FRONTEND_URL=http://frontend:3000
     depends_on:
@@ -26,7 +26,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - REACT_APP_API_URL=http://localhost:5000/api
+      # Use service name for inter-container communication
+      - REACT_APP_API_URL=http://backend:5000/api 
     depends_on:
       - backend
     restart: unless-stopped
@@ -37,7 +38,7 @@ services:
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=multi_tenant_saas
+      - POSTGRES_DB=saas_db  # Updated to mandatory name
     ports:
       - "5432:5432"
     volumes:

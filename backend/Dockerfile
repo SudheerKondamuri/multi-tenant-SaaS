@@ -3,5 +3,6 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-EXPOSE 5001
+# Port 5000 is mandatory for the backend service
+EXPOSE 5000 
 CMD ["npm", "start"]
