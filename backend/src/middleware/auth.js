@@ -1,31 +1,27 @@
-const jwt = require('jsonwebtoken');
+import jwt from 'jsonwebtoken';
+import { fail } from '../utils/response.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123';
-
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ success: false, message: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+export function authRequired(req, res, next) {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return res.status(401).json(fail('Token missing'));
+    try {
+        const payload = jwt.verify(token, process.env.JWT_SECRET);
+        req.auth = { userId: payload.userId, tenantId: payload.tenantId, role: payload.role };
+        next();
+    } catch (e) {
+        return res.status(401).json(fail('Token invalid or expired'));
     }
-    req.user = user;
-    next();
-  });
-};
+}
 
-const authorizeRoles = (...roles) => {
-  return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ success: false, message: 'Permission denied' });
+export function optionalAuth(req, res, next) {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (token) {
+        try {
+            const payload = jwt.verify(token, process.env.JWT_SECRET);
+            req.auth = { userId: payload.userId, tenantId: payload.tenantId, role: payload.role };
+        } catch { /* ignore */ }
     }
     next();
-  };
-};
-
-module.exports = { JWT_SECRET, authenticateToken, authorizeRoles };
+}
