@@ -1,94 +1,113 @@
-cat > ~/multi-tenant-saas/README.md << 'EOF'
-# 🚀 Multi-Tenant SaaS Platform
+# Multi-Tenant SaaS Platform (Projects & Tasks)
 
-[![Node.js](https://img.shields.io/badge/Backend-Node.js-green)](https://nodejs.org/)
-[![React](https://img.shields.io/badge/Frontend-React-blue)](https://reactjs.org/)
-[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-blueviolet)](https://www.postgresql.org/)
-[![Docker](https://img.shields.io/badge/Container-Docker-blue)](https://www.docker.com/)
+A simple, dockerized multi-tenant SaaS starter. Multiple organizations (tenants) can manage users, projects, and tasks.
 
-A production-ready, multi-tenant SaaS application designed for project and task management. This system ensures **strict data isolation** between organizations (tenants), implements **Role-Based Access Control (RBAC)**, and is fully containerized with **Docker**.
+This repo includes:
+- strict tenant data isolation (via `tenant_id`)
+- RBAC roles (`super_admin`, `tenant_admin`, `user`)
+- subscription plan limits (max users/projects)
+- automatic DB migrations + seed data on startup
 
----
+## Run with Docker (recommended)
 
-## 🌟 Key Features
+Start everything:
 
-* **Multi-Tenancy:** Each organization has its own isolated data environment.
-* **RBAC (Role-Based Access Control):** Three tiers: `Super Admin`, `Tenant Admin`, and `User`.
-* **Security:** JWT-based stateless authentication (24h expiry) and Bcrypt password hashing.
-* **Subscription Management:** Enforced limits on users and projects based on Free/Pro/Enterprise plans.
-* **Architecture:** Clean separation of concerns with a centralized PostgreSQL database using a shared-schema (tenant_id) strategy.
-
----
-
-## 🛠️ Technology Stack
-
-| Layer | Technology |
-| :--- | :--- |
-| **Frontend** | React 18, React Router, Axios, Tailwind CSS |
-| **Backend** | Node.js, Express.js |
-| **Database** | PostgreSQL |
-| **DevOps** | Docker, Docker Compose |
-| **Auth** | JSON Web Tokens (JWT), Bcrypt |
-
----
-
-## 📂 Project Structure
-
-```text
-/multi-tenant-saas
-├── /backend                 # Express API
-│   ├── /src
-│   │   ├── /config          # DB Connection (Pool)
-│   │   ├── /middleware      # JWT & Tenant Isolation
-│   │   ├── /routes          # 19+ API Endpoints
-│   │   └── server.js        # Main Entry Point
-│   ├── /migrations          # SQL Table Schemas
-│   └── Dockerfile
-├── /frontend                # React UI
-│   ├── /src
-│   │   ├── /pages           # Dashboard, Projects, Tasks
-│   │   └── /services        # API communication logic
-│   └── Dockerfile
-├── /docs                    # Mandatory Design Documents
-├── docker-compose.yml       # Orchestration
-└── submission.json          # Automated Test Credentials
-🚀 Quick Start (Local Development)
-1. Database Setup
-
-Ensure you have a PostgreSQL instance running and create a database named saas_db.
-
-2. Backend Configuration
-
-Bash
-cd backend
-npm install
-# Create .env file with your DB_HOST, DB_USER, DB_PASSWORD, and JWT_SECRET
-npm run dev
-3. Frontend Configuration
-
-Bash
-cd frontend
-npm install
-npm start
-🔐 Data Isolation Logic
-Data isolation is enforced at the database layer. Every query includes a tenant_id check extracted from the user's secure JWT.
-
-Example Query:
-
-SQL
--- No tenant can see another's data even with the same Project ID
-SELECT * FROM projects 
-WHERE id = $1 AND tenant_id = $2;
-🐳 Docker Deployment (Mandatory)
-To launch the entire production-ready stack (Database + Backend + Frontend):
-
-Bash
+```powershell
+cd "c:\Users\yaswa\OneDrive\Desktop\Multi-tenant-saas-platform"
 docker-compose up -d
-Frontend: http://localhost:3000
+```
 
-Backend: http://localhost:5000
+Open:
+- Frontend UI: http://localhost:3000
+- Backend API: http://localhost:5000
+- Health check: http://localhost:5000/api/health
 
-Health Check: http://localhost:5000/api/health
+## Login credentials (seeded)
 
-📝 License
-This project is part of the Internshala Student Partner learning track.
+These are also recorded in `submission.json`.
+
+- Super Admin (platform-wide)
+  - `superadmin@system.com` / `Admin@123`
+
+- Demo Tenant
+  - subdomain: `demo`
+  - Tenant Admin: `admin@demo.com` / `Demo@123`
+  - Users: `user1@demo.com` / `User@123`, `user2@demo.com` / `User@123`
+
+## Environment variables
+
+Environment variables for evaluation are set directly in `docker-compose.yml` (so `docker-compose up -d` works with no extra steps).
+
+For local (non-Docker) development, you can copy `.env.example` → `.env` and adjust as needed.
+
+Key variables:
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+- `JWT_SECRET`, `JWT_EXPIRES_IN`
+- `PORT`
+- `FRONTEND_URL` (CORS)
+- `VITE_API_URL` (frontend API base URL)
+
+## Deploy frontend to GitHub Pages
+
+This repository includes a React (Vite) frontend and a Node/Express backend. **GitHub Pages can only host static sites**, so this deploy publishes **only the `frontend/`**.
+
+### Enable GitHub Pages
+
+1. Push this repository to GitHub.
+2. In GitHub: **Settings → Pages**.
+3. Under **Build and deployment**, set **Source** to **GitHub Actions**.
+
+### Configure the backend API URL
+
+GitHub Pages cannot proxy `/api` to your backend (unlike your local Vite dev proxy). Host the backend somewhere else and set the frontend to call it.
+
+Create a repository variable:
+
+- **Settings → Secrets and variables → Actions → Variables → New repository variable**
+- Name: `VITE_API_URL`
+- Value: `https://YOUR_BACKEND_HOST/api`
+
+### Deploy
+
+Pushing to `main` (or `master`) will build and publish the site via `.github/workflows/deploy-pages.yml`.
+
+Your site URL will be:
+
+- `https://<owner>.github.io/<repo>/`
+
+### Notes
+
+- Deep links like `/projects/123` work on GitHub Pages via the SPA 404 redirect (`frontend/public/404.html`).
+- If you deploy as a **user/organization site** (root, no `/<repo>/` subpath), you may need to adjust the redirect logic in `frontend/public/404.html`.
+
+## API docs
+
+See `docs/API.md` for the full endpoint documentation.
+
+## Documentation
+
+All required documentation artifacts are under `docs/`:
+- Product Requirements: `docs/PRD.md`
+- Architecture + endpoint list: `docs/architecture.md`
+- Technical specification + Docker setup: `docs/technical-spec.md`
+- Research (multi-tenancy, stack justification, security): `docs/research.md`
+- API documentation (19 core endpoints + operational endpoints): `docs/API.md`
+
+## Demo video
+
+YouTube (Unlisted/Public, 5–12 minutes): https://www.youtube.com/watch?v=REPLACE_WITH_YOUR_VIDEO_ID
+
+## Notes
+
+- Data isolation: the backend scopes tenant data using `tenant_id` from the JWT (except `super_admin`).
+- DB init: the backend runs migrations + seed data automatically at startup.
+
+## Diagrams
+
+Required diagrams are under `docs/images/`:
+- `system-architecture.png`
+- `database-erd.png`
+
+Source SVGs are also included for crisp zooming:
+- `architecture.svg`
+- `er-diagram.svg`
