@@ -1,127 +1,134 @@
-const express = require('express');
-const pool = require('../config/db');
-const { authenticateToken, authorizeRoles } = require('../middleware/auth');
+import express from 'express';
+import { query } from '../config/db.js';
+import { ok, fail } from '../utils/response.js';
+import { authRequired } from '../middleware/auth.js';
+import { requireRole, belongsToTenantOrSuper } from '../middleware/authorize.js';
+import { logAudit } from '../utils/audit.js';
 
 const router = express.Router();
 
-/**
- * API 5: Get Tenant Details
- * Requirement: User must belong to this tenant OR be super_admin.
- */
-router.get('/:tenantId', authenticateToken, async (req, res) => {
-  try {
+router.get('/:tenantId', authRequired, belongsToTenantOrSuper, async(req, res) => {
     const { tenantId } = req.params;
-
-    // Authorization check
-    if (req.user.role !== 'super_admin' && req.user.tenant_id !== tenantId) {
-      return res.status(403).json({ success: false, message: 'Unauthorized access to this tenant' });
+    try {
+        const t = await query('SELECT * FROM tenants WHERE id=$1', [tenantId]);
+        if (!t.rowCount) return res.status(404).json(fail('Tenant not found'));
+        const statsUsers = await query('SELECT COUNT(*)::int AS count FROM users WHERE tenant_id=$1', [tenantId]);
+        const statsProjects = await query('SELECT COUNT(*)::int AS count FROM projects WHERE tenant_id=$1', [tenantId]);
+        const statsTasks = await query('SELECT COUNT(*)::int AS count FROM tasks WHERE tenant_id=$1', [tenantId]);
+        const tenant = t.rows[0];
+        return res.json(ok({
+            id: tenant.id,
+            name: tenant.name,
+            subdomain: tenant.subdomain,
+            status: tenant.status,
+            subscriptionPlan: tenant.subscription_plan,
+            maxUsers: tenant.max_users,
+            maxProjects: tenant.max_projects,
+            createdAt: tenant.created_at,
+            stats: {
+                totalUsers: statsUsers.rows[0].count,
+                totalProjects: statsProjects.rows[0].count,
+                totalTasks: statsTasks.rows[0].count
+            }
+        }));
+    } catch (e) {
+        return res.status(500).json(fail('Internal error'));
     }
-
-    const tenantQuery = `
-      SELECT id, name, subdomain, status, subscription_plan, max_users, max_projects, created_at
-      FROM public.tenants WHERE id = $1
-    `;
-    const tenantRes = await pool.query(tenantQuery, [tenantId]);
-
-    if (tenantRes.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Tenant not found' });
-    }
-
-    // Calculate Stats
-    const userCount = await pool.query('SELECT COUNT(*) FROM public.users WHERE tenant_id = $1', [tenantId]);
-    const projectCount = await pool.query('SELECT COUNT(*) FROM public.projects WHERE tenant_id = $1', [tenantId]);
-
-    const tenant = tenantRes.rows[0];
-    res.json({
-      success: true,
-      data: {
-        ...tenant,
-        stats: {
-          totalUsers: parseInt(userCount.rows[0].count),
-          totalProjects: parseInt(projectCount.rows[0].count)
-        }
-      }
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
 });
 
-/**
- * API 6: Update Tenant
- * Requirement: tenant_admin (name only) OR super_admin (all fields).
- */
-router.put('/:tenantId', authenticateToken, authorizeRoles('tenant_admin', 'super_admin'), async (req, res) => {
-  try {
+router.put('/:tenantId', authRequired, async(req, res) => {
+    const { role, tenantId: authTenantId } = req.auth;
     const { tenantId } = req.params;
     const { name, status, subscriptionPlan, maxUsers, maxProjects } = req.body;
 
-    // Ensure tenant_admin only updates their own tenant
-    if (req.user.role === 'tenant_admin' && req.user.tenant_id !== tenantId) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
-    }
+    if (role !== 'super_admin' && tenantId !== authTenantId) return res.status(403).json(fail('Forbidden'));
 
-    let query;
-    let params;
+    try {
+        const t = await query('SELECT * FROM tenants WHERE id=$1', [tenantId]);
+        if (!t.rowCount) return res.status(404).json(fail('Tenant not found'));
 
-    if (req.user.role === 'super_admin') {
-      query = `
-        UPDATE public.tenants 
-        SET name = COALESCE($1, name), status = COALESCE($2, status), 
-            subscription_plan = COALESCE($3, subscription_plan), max_users = COALESCE($4, max_users), 
-            max_projects = COALESCE($5, max_projects), updated_at = CURRENT_TIMESTAMP
-        WHERE id = $6 RETURNING *`;
-      params = [name, status, subscriptionPlan, maxUsers, maxProjects, tenantId];
-    } else {
-      // tenant_admin can only update name
-      query = `UPDATE public.tenants SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *`;
-      params = [name, tenantId];
-    }
+        let fields = [];
+        let values = [];
+        let idx = 1;
 
-    const result = await pool.query(query, params);
-    res.json({ success: true, message: 'Tenant updated successfully', data: result.rows[0] });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Update failed' });
-  }
-});
+        if (name) { fields.push(`name=$${idx++}`);
+            values.push(name); }
 
-/**
- * API 7: List All Tenants
- * Requirement: super_admin ONLY. Includes pagination and filters.
- */
-router.get('/', authenticateToken, authorizeRoles('super_admin'), async (req, res) => {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const offset = (page - 1) * limit;
-
-    const query = `
-      SELECT t.*, 
-      (SELECT COUNT(*) FROM public.users WHERE tenant_id = t.id) as total_users
-      FROM public.tenants t
-      ORDER BY t.created_at DESC
-      LIMIT $1 OFFSET $2
-    `;
-    const result = await pool.query(query, [limit, offset]);
-    const totalCount = await pool.query('SELECT COUNT(*) FROM public.tenants');
-
-    res.json({
-      success: true,
-      data: {
-        tenants: result.rows,
-        pagination: {
-          currentPage: page,
-          totalPages: Math.ceil(totalCount.rows[0].count / limit),
-          totalTenants: parseInt(totalCount.rows[0].count)
+        if (role === 'super_admin') {
+            if (status) { fields.push(`status=$${idx++}`);
+                values.push(status); }
+            if (subscriptionPlan) { fields.push(`subscription_plan=$${idx++}`);
+                values.push(subscriptionPlan); }
+            if (maxUsers !== undefined) { fields.push(`max_users=$${idx++}`);
+                values.push(maxUsers); }
+            if (maxProjects !== undefined) { fields.push(`max_projects=$${idx++}`);
+                values.push(maxProjects); }
+        } else {
+            if (status || subscriptionPlan || maxUsers !== undefined || maxProjects !== undefined) {
+                return res.status(403).json(fail('Forbidden'));
+            }
         }
-      }
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
+
+        if (!fields.length) return res.status(400).json(fail('No fields to update'));
+
+        values.push(tenantId);
+        const sql = `UPDATE tenants SET ${fields.join(', ')}, updated_at=NOW() WHERE id=$${idx} RETURNING id, name, updated_at`;
+        const u = await query(sql, values);
+
+        await logAudit({ tenantId, userId: req.auth.userId, action: 'UPDATE_TENANT', entityType: 'tenant', entityId: tenantId, ipAddress: req.ip });
+
+        return res.json(ok(u.rows[0], 'Tenant updated successfully'));
+    } catch (e) {
+        return res.status(500).json(fail('Internal error'));
+    }
 });
 
-module.exports = router;
+router.get('/', authRequired, requireRole('super_admin'), async(req, res) => {
+    let { page = 1, limit = 10, status, subscriptionPlan } = req.query;
+    page = parseInt(page, 10);
+    limit = Math.min(100, parseInt(limit, 10));
+    const offset = (page - 1) * limit;
+    try {
+        const where = [];
+        const params = [];
+        let idx = 1;
+        if (status) { where.push(`status=$${idx++}`);
+            params.push(status); }
+        if (subscriptionPlan) { where.push(`subscription_plan=$${idx++}`);
+            params.push(subscriptionPlan); }
+        const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+        const rows = await query(`SELECT * FROM tenants ${whereSql} ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`, params);
+        const count = await query(`SELECT COUNT(*)::int AS count FROM tenants ${whereSql}`, params);
+
+        const tenants = [];
+        for (const t of rows.rows) {
+            const totalUsers = await query('SELECT COUNT(*)::int AS c FROM users WHERE tenant_id=$1', [t.id]);
+            const totalProjects = await query('SELECT COUNT(*)::int AS c FROM projects WHERE tenant_id=$1', [t.id]);
+            tenants.push({
+                id: t.id,
+                name: t.name,
+                subdomain: t.subdomain,
+                status: t.status,
+                subscriptionPlan: t.subscription_plan,
+                totalUsers: totalUsers.rows[0].c,
+                totalProjects: totalProjects.rows[0].c,
+                createdAt: t.created_at,
+            });
+        }
+
+        return res.json(ok({
+            tenants,
+            pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(count.rows[0].count / limit),
+                totalTenants: count.rows[0].count,
+                limit
+            }
+        }));
+    } catch (e) {
+        return res.status(500).json(fail('Internal error'));
+    }
+});
+
+export default router;
