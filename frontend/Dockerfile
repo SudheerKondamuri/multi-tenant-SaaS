@@ -1,21 +1,25 @@
-# Use an official Node.js runtime as a parent image
-FROM node:18-alpine
-
-# Set the working directory
+# Frontend Dockerfile (production)
+# 1) Build the React/Vite app
+FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copy package files and install dependencies
-COPY package*.json ./
-RUN npm install
+COPY package.json package-lock.json* ./
+RUN npm ci
 
-# Copy the rest of the application code
 COPY . .
 
-# Build the app (optional, depending on if you're using a dev server)
-# RUN npm run build
+# Provide a default at build time. (Runtime is handled by nginx proxying /api)
+ARG VITE_API_URL=/api
+ENV VITE_API_URL=$VITE_API_URL
 
-# Expose port 3000 as required by the task
+RUN npm run build
+
+# 2) Serve static files via nginx on port 3000
+FROM nginx:1.27-alpine
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
+
 EXPOSE 3000
 
-# Start the development server
-CMD ["npm", "start"]
+CMD ["nginx", "-g", "daemon off;"]
