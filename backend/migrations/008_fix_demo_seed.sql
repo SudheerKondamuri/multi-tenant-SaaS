@@ -1,0 +1,3 @@
+-- Migration 008: Placeholder
+-- This migration is reserved for future schema changes.
+-- Currently a no-op to allow the application to start successfully.
