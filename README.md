@@ -1,4 +1,4 @@
-# Multi-Tenant SaaS Starter – Projects & Tasks (Live Deployment)
+# Multi-Tenant SaaS Starter – Projects & Tasks 
 
 A lightweight, Docker-based **multi-tenant SaaS starter platform** where multiple organizations (tenants) can manage users, projects, and tasks with strict data isolation.
 
@@ -6,13 +6,6 @@ This README documents the **live deployed instance** of the application.
 
 ---
 
-## 🌐 Live Application URLs
-
-- **Frontend UI:** http://54.83.167.72:3000/
-- **Backend API:** http://54.83.167.72:5000/
-- **Health Check:** http://54.83.167.72:5000/api/health
-
----
 
 ## Key Capabilities
 
